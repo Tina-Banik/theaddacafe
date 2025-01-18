@@ -81,7 +81,7 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   // res.send("The user login successfully..");
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, role } = req.body;
     console.log(`Username: ${username}, Email: ${email}, Password:${password}`);
     if (!(username || email)) {
       return res.status(401).json({
@@ -91,7 +91,7 @@ const login = async (req, res) => {
     }
     /**valid user */
     const validUser = await userModel.findOne({
-      $or: [{ username }, { email }],
+      $or: [{ username }, { email }, {role}],
     });
     console.log(`the valid user : ${validUser}`);
     /**compare the passwords */
@@ -102,9 +102,7 @@ const login = async (req, res) => {
       throw new Error("Invalid users credentials..");
     }
     /**logged user info */
-    const loggedUser = await userModel
-      .findById(validUser._id)
-      .select("-password");
+    const loggedUser = await userModel.findById(validUser._id).select("-password");
     console.log(`The logged user info : ${loggedUser}`);
     /**create the access token and refresh token */
     const accessToken = await createAccess_token(
@@ -112,27 +110,22 @@ const login = async (req, res) => {
       loggedUser._id,
       loggedUser.role // add here 
     );
-    console.log(
-      "the access token while the user wants to login : ",
-      accessToken
-    );
+    console.log("the access token while the user wants to login : ",accessToken);
     const refreshToken = await createRefresh_token(
       loggedUser.email,
       loggedUser._id
     );
-    console.log(
-      "The refresh token while the user wants to login : ",
-      refreshToken
-    );
+    console.log("The refresh token while the user wants to login : ",refreshToken);
     /**cookies generate */
     const options = {
       httpOnly: true,
       secure: true,
+      maxAge: 20* 1000
     };
     return res
       .status(200)
       .cookie("accessToken", accessToken, options)
-      .cookie("refreshToken", refreshToken, options)
+      .cookie("refreshToken", refreshToken, {httpOnly:true, secure:true, maxAge: 2 * 60 * 1000})
       .json({
         success: true,
         info: loggedUser.email,
@@ -210,6 +203,9 @@ const changePassword = async (req, res) => {
       .status(400)
       .json({ message: "The old and new password is required..." });
   }
+  if(typeof newPassword !== 'string' || newPassword.trim() === ''){
+    return res.status(300).json({success:false, message:"New passwords can not be blank.. "})
+  }
   try {
     const user = await userModel.findById(req.decode._id);
     console.log("The user who wants to set the new password : ", user);
@@ -247,12 +243,6 @@ const getCurrentUser = async (req, res) => {
 const logout = async (req, res) => {
   // return res.status(200).json({message:"The user logout successfully.."})
   console.log("The req.user req.user.refreshToken : ", req.user.refreshToken);
-  // const tokenArray = req.headers.authorization || "";
-  // const token = req.cookies.refreshToken || req.header("Authorization").replace("Bearer "," ");
-  // const token = tokenArray.split(" ")[1];
-  // if (req.header("Authorization") || req.cookies.accessToken) {
-  //   return res.status(400).json({ message: "Use refresh token for logout." });
-  // }
   const token = req.user.refreshToken;
   console.log("The blacklisted refresh token logout :", token);
   try {
@@ -274,7 +264,7 @@ const logout = async (req, res) => {
       .status(200)
       .clearCookie("accessToken", options)
       .clearCookie("refreshToken", options)
-      .json({ message: `${req.user.username}, User logout successfully...` });
+      .json({ message: `${req.user.username},logout successfully...` });
    
   } catch (error) {
     console.error("The error during logout :", error);
@@ -335,7 +325,7 @@ const getUpdateUserDetails = async (req, res) => {
     let updatedData = {...req.body};
     delete updatedData.refreshToken;
     let changes = Object.keys(updatedData).some(
-        key => updatedData[key] !== existingUserId[key]
+        key => updatedData[key] && updatedData[key] !== existingUserId[key]
     )
     if(!changes){
         return res.status(200).json({
